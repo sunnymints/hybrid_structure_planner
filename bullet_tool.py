@@ -206,7 +206,7 @@ class CameraIntrinsic(object):
 '''
 绑定相机位置并获取更新图像
 '''
-def update_camera_image(end_state,camera):
+def update_camera_image_to_end(end_state,camera):
     cv2.namedWindow("image")
     end_pos = end_state[0]
     end_orn = end_state[1]
@@ -222,7 +222,7 @@ def update_camera_image(end_state,camera):
     cv2.namedWindow("image")
     cv2.imshow("image", bgr)
     key = cv2.waitKey(10)
-    time.sleep(10)
+    # time.sleep(10)
 
     return bgr
 
@@ -237,7 +237,7 @@ def _bind_camera_to_end(end_pos, end_orn_or):
     Returns:
     - wcT: shape=(4, 4), transform matrix, represents camera pose in world frame
     """
-    relative_offset = [-0.08, 0, 0.6]  # 相机原点相对于末端执行器局部坐标系的偏移量
+    relative_offset = [-0.08, 0, 0.1]  # 相机原点相对于末端执行器局部坐标系的偏移量
     end_orn = R.from_quat(end_orn_or).as_matrix()
     end_x_axis, end_y_axis, end_z_axis = end_orn.T
 
@@ -249,8 +249,82 @@ def _bind_camera_to_end(end_pos, end_orn_or):
     wcT[:3, 3] = end_orn.dot(relative_offset) + end_pos  # eye position
     fg = R.from_euler('XYZ', [-0.35, 0, 0]).as_matrix()
 
+    wcT[:3, :3] = np.matmul(wcT[:3, :3], fg)
+
     camera_link = DebugAxes()
-    camera_link.update(wcT[:3,3],end_orn_or)
+    camera_link.update(wcT[:3,3],R.from_matrix(wcT[:3, :3]).as_quat())
+
+
+    return wcT
+
+
+def update_camera_image_to_base(end_state,relative_offset,camera):
+
+    end_pos = end_state[0]
+    end_orn = end_state[1]
+    wcT = _bind_camera_to_base(end_pos, end_orn,relative_offset)
+    cwT = np.linalg.inv(wcT)
+
+    frame = camera.render(cwT)
+    assert isinstance(frame, Frame)
+
+    rgb = frame.color_image()  # 这里以显示rgb图像为例, frame还包含了深度图, 也可以转化为点云
+    bgr = np.ascontiguousarray(rgb[:, :, ::-1])  # flip the rgb channel
+
+
+
+    rgbd = frame.depth_image()
+
+    import matplotlib
+    matplotlib.use('TkAgg')  # 大小写无所谓 tkaGg ,TkAgg 都行
+    import matplotlib.pyplot as plt
+
+    plt.figure(num=1)
+    plt.imshow(rgb)
+    plt.show()
+
+    plt.figure(num=2)
+    plt.imshow(rgbd)
+    plt.show()
+
+    # cv2.namedWindow("image")
+    # cv2.imshow("image", bgr)
+    # key = cv2.waitKey(10)
+    # time.sleep(10)
+    p=1
+
+    return bgr
+
+
+def _bind_camera_to_base(end_pos, end_orn_or,relative_offset):
+    """设置相机坐标系与末端坐标系的相对位置
+
+    Arguments:
+    - end_pos: len=3, end effector position
+    - end_orn: len=4, end effector orientation, quaternion (x, y, z, w)
+
+    Returns:
+    - wcT: shape=(4, 4), transform matrix, represents camera pose in world frame
+    """
+    camera_link = DebugAxes()
+
+    end_orn = R.from_quat(end_orn_or).as_matrix()
+    end_x_axis, end_y_axis, end_z_axis = end_orn.T
+
+    wcT = np.eye(4)  # w: world, c: camera, ^w_c T
+    wcT[:3, 0] = -end_y_axis  # camera x axis
+    wcT[:3, 1] = -end_z_axis  # camera y axis
+    wcT[:3, 2] = end_x_axis  # camera z axis
+    wcT[:3, 3] = end_orn.dot(relative_offset) + end_pos  # eye position
+    fg = R.from_euler('XYZ', [-np.pi/2, 0, 0]).as_matrix()
 
     wcT[:3, :3] = np.matmul(wcT[:3, :3], fg)
+
+
+    camera_link.update(wcT[:3,3],R.from_matrix(wcT[:3, :3]).as_quat())
+
+    p=0
+
+
+
     return wcT
